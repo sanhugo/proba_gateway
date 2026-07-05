@@ -1,0 +1,6 @@
+services:
+  redis:
+    image: 'redis:latest'
+    restart: no
+    ports:
+      - '6379:6379'
