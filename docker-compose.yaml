@@ -1,0 +1,93 @@
+services:
+  redis:
+    image: redis:8
+    container_name: token-redis
+    # В Redis лежат сессии с access/refresh токенами: пароль обязателен, порт - только на localhost
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Задайте REDIS_PASSWORD в .env}
+      # redis-cli подхватывает пароль отсюда (healthcheck без пароля в командной строке)
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak-db:
+    image: postgres:17
+    container_name: token-keycloak-db
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.0
+    container_name: token-keycloak
+    command: ["start-dev", "--import-realm"]
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+      # Публичный адрес: браузер и Gateway (запущенный на хосте) должны видеть один и тот же issuer
+      KC_HOSTNAME: http://localhost:8180
+      KC_HTTP_ENABLED: "true"
+      # /health/ready на management-порту 9000 (внутри контейнера)
+      KC_HEALTH_ENABLED: "true"
+      # Доступен для подстановки ${KEYCLOAK_CLIENT_SECRET} в keycloak/realm/*.json
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-gateway-dev-secret}
+      # Пароль тестовых пользователей из realm-файла (только для локальной разработки)
+      TEST_USER_PASSWORD: ${TEST_USER_PASSWORD:?Задайте TEST_USER_PASSWORD в .env}
+    ports:
+      - "8180:8080"
+    volumes:
+      - ./keycloak/realm:/opt/keycloak/data/import:ro
+    healthcheck:
+      # В образе Keycloak нет curl, поэтому HTTP-запрос через /dev/tcp
+      test:
+        - CMD-SHELL
+        - |
+          exec 3<>/dev/tcp/127.0.0.1/9000
+          echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3
+          timeout 2 cat <&3 | grep -q '"status": "UP"'
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  # Локальная почтовая заглушка: SMTP на 1025 (адрес mailpit:1025 для Keycloak), веб-интерфейс и API на 8025
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: token-mailpit
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  redis_data:
+  keycloak_db_data:

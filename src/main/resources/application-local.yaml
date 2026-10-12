@@ -1,0 +1,25 @@
+# Локальная разработка: Gateway на хосте, Redis и Keycloak из docker-compose.yaml
+spring:
+  data:
+    redis:
+      host: localhost
+  security:
+    oauth2:
+      client:
+        provider:
+          keycloak:
+            issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/proba}
+
+eureka:
+  client:
+    enabled: false # Eureka-сервера локально нет; маршруты статические
+
+gateway:
+  services:
+    example-url: http://localhost:8082
+
+server:
+  reactive:
+    session:
+      cookie:
+        secure: false # локально по http

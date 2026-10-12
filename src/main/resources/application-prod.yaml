@@ -1,0 +1,34 @@
+# Prod-сервер: все адреса и секреты приходят из окружения, значений по умолчанию нет
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      ssl:
+        enabled: true
+  security:
+    oauth2:
+      client:
+        provider:
+          keycloak:
+            issuer-uri: ${KEYCLOAK_ISSUER_URI}
+
+gateway:
+  services:
+    example-url: ${EXAMPLE_SERVICE_URL}
+
+server:
+  # Gateway за reverse proxy: {baseUrl} для redirect-uri строится по X-Forwarded-*
+  forward-headers-strategy: framework
+  reactive:
+    session:
+      cookie:
+        secure: true
+
+management:
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: INFO
